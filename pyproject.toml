@@ -1,0 +1,27 @@
+[project]
+name = "rag-test"
+version = "0.1.0"
+description = "RAG system for internal document question-answering using Docling, ChromaDB, and Claude"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "docling>=1.0.0",
+    "chromadb>=0.4.0",
+    "anthropic>=0.34.0",
+    "streamlit>=1.28.0",
+    "sentence-transformers>=2.2.0",
+    "python-dotenv>=1.0.0",
+    "pypdf2>=3.0.0",
+    "torch>=2.0.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "urllib3>=2.0.0",
+    "httpx>=0.25.0",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.4.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
