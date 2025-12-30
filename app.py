@@ -59,14 +59,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Page configuration
-st.set_page_config(page_title="RAG Document Q&A System", page_icon="📚", layout="wide")
+st.set_page_config(page_title="RAG Document Q&A System - Christmas Edition", page_icon="🎄", layout="wide")
 
 # Custom CSS for better styling
 st.markdown(
     """
 <style>
     .main-header {
-        font-size: 2.5rem;
+        font-size: 3.5rem;
         font-weight: 700;
         margin-bottom: 1rem;
     }
@@ -74,6 +74,12 @@ st.markdown(
         font-size: 1.2rem;
         color: #666;
         margin-bottom: 2rem;
+    }
+    .section-header {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-top: 2rem;
+        margin-bottom: 1rem;
     }
     .source-box {
         background-color: #f0f2f6;
@@ -156,29 +162,35 @@ def display_stats():
             st.sidebar.markdown("### Chunk Filtering")
             filter_stats = stats["chunk_filtering"]
 
-            # Main metrics
-            col1, col2 = st.sidebar.columns(2)
-            with col1:
-                st.metric("Total Chunks", filter_stats["total_chunks_created"])
-            with col2:
-                st.metric("Filtered", filter_stats["chunks_filtered"])
+            # Check if this is first run (no stats yet)
+            if filter_stats["total_chunks_created"] == 0:
+                st.sidebar.info(
+                    "No filtering stats yet. Stats will appear after indexing documents."
+                )
+            else:
+                # Main metrics
+                col1, col2 = st.sidebar.columns(2)
+                with col1:
+                    st.metric("Total Chunks", filter_stats["total_chunks_created"])
+                with col2:
+                    st.metric("Filtered", filter_stats["chunks_filtered"])
 
-            # Filter rate
-            st.sidebar.metric(
-                "Filter Rate",
-                f"{filter_stats['filter_rate']:.1%}",
-                help="Percentage of chunks filtered due to low quality"
-            )
+                # Filter rate
+                st.sidebar.metric(
+                    "Filter Rate",
+                    f"{filter_stats['filter_rate']:.1%}",
+                    help="Percentage of chunks filtered due to low quality"
+                )
 
-            # Filter reasons breakdown
-            if filter_stats["filter_reasons"]:
-                with st.sidebar.expander("Filter Reasons"):
-                    for reason, count in sorted(
-                        filter_stats["filter_reasons"].items(),
-                        key=lambda x: x[1],
-                        reverse=True
-                    ):
-                        st.text(f"{reason}: {count}")
+                # Filter reasons breakdown
+                if filter_stats["filter_reasons"]:
+                    with st.sidebar.expander("Filter Reasons"):
+                        for reason, count in sorted(
+                            filter_stats["filter_reasons"].items(),
+                            key=lambda x: x[1],
+                            reverse=True
+                        ):
+                            st.text(f"{reason}: {count}")
 
     except Exception as e:
         st.sidebar.error(f"Error loading stats: {e}")
@@ -186,7 +198,7 @@ def display_stats():
 
 def document_upload_section():
     """Handle document upload and indexing."""
-    st.header("📄 Document Upload")
+    st.markdown('<h3 class="section-header">📄 Document Upload</h3>', unsafe_allow_html=True)
 
     uploaded_files = st.file_uploader(
         "Upload PDF documents to index",
@@ -265,7 +277,7 @@ def document_upload_section():
 
 def query_section():
     """Handle user queries."""
-    st.header("🔍 Ask Questions")
+    st.markdown('<h3 class="section-header">🔍 Ask Questions</h3>', unsafe_allow_html=True)
 
     # Check if there are documents to query
     stats = st.session_state.pipeline.get_stats()
@@ -351,7 +363,7 @@ def main():
     """Main application entry point."""
     # Header
     st.markdown(
-        '<p class="main-header">📚 RAG Document Q&A System</p>', unsafe_allow_html=True
+        '<h1 class="main-header">🎄 RAG Document Q&A System - Christmas Edition</h1>', unsafe_allow_html=True
     )
     st.markdown(
         '<p class="sub-header">Upload PDF documents and ask questions using AI-powered search</p>',

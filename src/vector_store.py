@@ -7,6 +7,7 @@ from difflib import SequenceMatcher
 import numpy as np
 import chromadb
 from chromadb.config import Settings
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -422,6 +423,95 @@ class VectorStore:
             metadata={"description": "Document chunks with embeddings"}
         )
         logger.info("Collection cleared successfully")
+
+    def get_filtering_stats(self) -> Dict[str, Any]:
+        """
+        Retrieve chunk filtering statistics from collection metadata.
+
+        Returns:
+            Dictionary with filtering metrics, or default zeros if not found
+        """
+        metadata = self.collection.metadata or {}
+
+        # Stats are stored as JSON string in metadata (ChromaDB doesn't support nested dicts)
+        stats_json = metadata.get("filtering_stats_json", None)
+
+        if stats_json:
+            try:
+                stats = json.loads(stats_json)
+            except (json.JSONDecodeError, TypeError):
+                # Fallback to default if JSON is invalid
+                stats = {
+                    "total_chunks_created": 0,
+                    "chunks_filtered": 0,
+                    "filter_reasons": {}
+                }
+        else:
+            # Default stats for new collections
+            stats = {
+                "total_chunks_created": 0,
+                "chunks_filtered": 0,
+                "filter_reasons": {}
+            }
+
+        total = stats.get("total_chunks_created", 0)
+        filtered = stats.get("chunks_filtered", 0)
+
+        return {
+            "total_chunks_created": total,
+            "chunks_filtered": filtered,
+            "chunks_kept": total - filtered,
+            "filter_rate": filtered / total if total > 0 else 0,
+            "filter_reasons": stats.get("filter_reasons", {})
+        }
+
+    def update_filtering_stats(
+        self,
+        chunks_created: int,
+        chunks_filtered: int,
+        filter_reasons: Dict[str, int]
+    ) -> None:
+        """
+        Update chunk filtering statistics in collection metadata.
+
+        Args:
+            chunks_created: Number of chunks created in this batch
+            chunks_filtered: Number of chunks filtered in this batch
+            filter_reasons: Dictionary of filter reason → count
+        """
+        # Get existing stats
+        current_stats = self.get_filtering_stats()
+
+        # Update totals (cumulative)
+        new_total = current_stats["total_chunks_created"] + chunks_created
+        new_filtered = current_stats["chunks_filtered"] + chunks_filtered
+
+        # Merge filter reasons (cumulative)
+        new_reasons = dict(current_stats["filter_reasons"])
+        for reason, count in filter_reasons.items():
+            new_reasons[reason] = new_reasons.get(reason, 0) + count
+
+        # Prepare stats object
+        stats_obj = {
+            "total_chunks_created": new_total,
+            "chunks_filtered": new_filtered,
+            "filter_reasons": new_reasons
+        }
+
+        # Serialize to JSON (ChromaDB metadata only supports simple types)
+        stats_json = json.dumps(stats_obj)
+
+        # Update collection metadata
+        updated_metadata = dict(self.collection.metadata or {})
+        updated_metadata["filtering_stats_json"] = stats_json
+
+        # Persist to ChromaDB
+        self.collection.modify(metadata=updated_metadata)
+
+        logger.info(
+            f"Updated filtering stats: total={new_total}, filtered={new_filtered}, "
+            f"rate={new_filtered/new_total:.1%}"
+        )
 
     def document_exists(self, document_id: str) -> bool:
         """

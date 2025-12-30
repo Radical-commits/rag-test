@@ -45,11 +45,6 @@ class DocumentProcessor:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.validator = ChunkValidator(validation_config)
-        self.filtering_stats = {
-            "total_chunks_created": 0,
-            "chunks_filtered": 0,
-            "filter_reasons": {},
-        }
 
         # Configure Docling with XET mode disabled (set in app.py)
         pipeline_options = PdfPipelineOptions()
@@ -67,7 +62,7 @@ class DocumentProcessor:
         )
         logger.info(f"Initialized DocumentProcessor (chunk_size={chunk_size}, overlap={chunk_overlap}, OCR=enabled, tables=enabled, validation=enabled)")
 
-    def process_pdf(self, pdf_path: Path) -> List[DocumentChunk]:
+    def process_pdf(self, pdf_path: Path) -> tuple[List[DocumentChunk], Dict[str, Any]]:
         """
         Process a single PDF file and extract text chunks.
 
@@ -75,7 +70,7 @@ class DocumentProcessor:
             pdf_path: Path to the PDF file
 
         Returns:
-            List of DocumentChunk objects
+            Tuple of (chunks, batch_stats) where batch_stats contains filtering metrics
 
         Raises:
             ValueError: If the file is not a PDF or cannot be read
@@ -101,17 +96,25 @@ class DocumentProcessor:
 
             if text_length == 0:
                 logger.warning(f"No text extracted from {pdf_path.name}! Document may be empty or image-only.")
-                return []
+                # Return empty chunks and empty stats
+                return [], {
+                    "chunks_created": 0,
+                    "chunks_filtered": 0,
+                    "filter_reasons": {}
+                }
 
-            # Create chunks from the text
-            chunks = self._create_chunks(
+            # Create chunks from the text (now returns tuple with stats)
+            chunks, batch_stats = self._create_chunks(
                 text=full_text,
                 source=pdf_path.name,
                 metadata={"original_path": str(pdf_path)}
             )
 
-            logger.info(f"Created {len(chunks)} chunks from {pdf_path.name}")
-            return chunks
+            logger.info(
+                f"Created {len(chunks)} chunks from {pdf_path.name} "
+                f"({batch_stats['chunks_created']} total, {batch_stats['chunks_filtered']} filtered)"
+            )
+            return chunks, batch_stats
 
         except Exception as e:
             logger.error(f"Error processing PDF {pdf_path.name}: {e}")
@@ -145,9 +148,9 @@ class DocumentProcessor:
         text: str,
         source: str,
         metadata: Dict[str, Any]
-    ) -> List[DocumentChunk]:
+    ) -> tuple[List[DocumentChunk], Dict[str, Any]]:
         """
-        Split text into overlapping chunks.
+        Split text into overlapping chunks and validate quality.
 
         Args:
             text: Full text to chunk
@@ -155,12 +158,23 @@ class DocumentProcessor:
             metadata: Additional metadata to attach
 
         Returns:
-            List of DocumentChunk objects
+            Tuple of (valid_chunks, batch_stats) where batch_stats = {
+                "chunks_created": int,
+                "chunks_filtered": int,
+                "filter_reasons": dict
+            }
         """
         chunks = []
         text_length = len(text)
         start = 0
         chunk_index = 0
+
+        # Initialize batch stats
+        batch_stats = {
+            "chunks_created": 0,
+            "chunks_filtered": 0,
+            "filter_reasons": {}
+        }
 
         logger.debug(f"Starting chunking of {text_length} characters")
 
@@ -188,7 +202,7 @@ class DocumentProcessor:
             chunk_text = text[start:end].strip()
 
             # Track chunk creation
-            self.filtering_stats["total_chunks_created"] += 1
+            batch_stats["chunks_created"] += 1
 
             # Validate chunk quality
             is_valid, reason = self.validator.is_valid_chunk(chunk_text)
@@ -205,10 +219,10 @@ class DocumentProcessor:
                 chunk_index += 1
             else:
                 # Track filtering statistics
-                self.filtering_stats["chunks_filtered"] += 1
-                if reason not in self.filtering_stats["filter_reasons"]:
-                    self.filtering_stats["filter_reasons"][reason] = 0
-                self.filtering_stats["filter_reasons"][reason] += 1
+                batch_stats["chunks_filtered"] += 1
+                if reason not in batch_stats["filter_reasons"]:
+                    batch_stats["filter_reasons"][reason] = 0
+                batch_stats["filter_reasons"][reason] += 1
 
                 logger.debug(
                     f"Filtered chunk: reason={reason}, "
@@ -230,30 +244,4 @@ class DocumentProcessor:
             start = next_start
 
         logger.debug(f"Chunking complete: {len(chunks)} chunks created")
-        return chunks
-
-    def get_filtering_stats(self) -> Dict[str, Any]:
-        """Get chunk filtering statistics.
-
-        Returns:
-            Dictionary with filtering metrics
-        """
-        total = self.filtering_stats["total_chunks_created"]
-        filtered = self.filtering_stats["chunks_filtered"]
-
-        return {
-            "total_chunks_created": total,
-            "chunks_filtered": filtered,
-            "chunks_kept": total - filtered,
-            "filter_rate": filtered / total if total > 0 else 0,
-            "filter_reasons": dict(self.filtering_stats["filter_reasons"])
-        }
-
-    def reset_filtering_stats(self) -> None:
-        """Reset filtering statistics counters."""
-        self.filtering_stats = {
-            "total_chunks_created": 0,
-            "chunks_filtered": 0,
-            "filter_reasons": {},
-        }
-        logger.info("Reset chunk filtering statistics")
+        return chunks, batch_stats

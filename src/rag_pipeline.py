@@ -121,6 +121,13 @@ class RAGPipeline:
         all_chunks = []
         processed_files = 0
 
+        # Accumulate filtering stats across all files
+        total_stats = {
+            "chunks_created": 0,
+            "chunks_filtered": 0,
+            "filter_reasons": {}
+        }
+
         for i, pdf_path in enumerate(pdf_paths):
             try:
                 # Update progress
@@ -138,13 +145,19 @@ class RAGPipeline:
                     results["skipped_files"] += 1
                     continue
 
-                # Process document
-                chunks = self.document_processor.process_pdf(pdf_path)
+                # Process document (now returns chunks and stats)
+                chunks, batch_stats = self.document_processor.process_pdf(pdf_path)
 
                 if chunks:
                     all_chunks.extend(chunks)
                     self.processed_documents.add(doc_hash)
                     processed_files += 1
+
+                # Accumulate stats
+                total_stats["chunks_created"] += batch_stats["chunks_created"]
+                total_stats["chunks_filtered"] += batch_stats["chunks_filtered"]
+                for reason, count in batch_stats["filter_reasons"].items():
+                    total_stats["filter_reasons"][reason] = total_stats["filter_reasons"].get(reason, 0) + count
 
             except Exception as e:
                 error_msg = f"Error processing {pdf_path.name}: {str(e)}"
@@ -192,18 +205,26 @@ class RAGPipeline:
                     metadatas=metadatas
                 )
 
+                # Persist filtering stats to vector store
+                if total_stats["chunks_created"] > 0:
+                    self.vector_store.update_filtering_stats(
+                        chunks_created=total_stats["chunks_created"],
+                        chunks_filtered=total_stats["chunks_filtered"],
+                        filter_reasons=total_stats["filter_reasons"]
+                    )
+
                 results["new_chunks"] = len(all_chunks)
                 logger.info(f"Successfully indexed {processed_files} files with {len(all_chunks)} chunks")
 
                 # Log chunk filtering statistics
-                filter_stats = self.document_processor.get_filtering_stats()
+                filter_rate = total_stats["chunks_filtered"] / total_stats["chunks_created"] if total_stats["chunks_created"] > 0 else 0
                 logger.info(
                     f"Chunk filtering summary: "
-                    f"{filter_stats['chunks_filtered']} filtered out of {filter_stats['total_chunks_created']} total "
-                    f"({filter_stats['filter_rate']:.1%} filter rate)"
+                    f"{total_stats['chunks_filtered']} filtered out of {total_stats['chunks_created']} total "
+                    f"({filter_rate:.1%} filter rate)"
                 )
-                if filter_stats['filter_reasons']:
-                    logger.info(f"Filter reasons: {filter_stats['filter_reasons']}")
+                if total_stats['filter_reasons']:
+                    logger.info(f"Filter reasons: {total_stats['filter_reasons']}")
 
             except Exception as e:
                 error_msg = f"Error storing embeddings: {str(e)}"
@@ -304,7 +325,9 @@ class RAGPipeline:
         """
         vector_stats = self.vector_store.get_collection_stats()
         embedding_dim = self.embedding_generator.get_embedding_dimension()
-        filter_stats = self.document_processor.get_filtering_stats()
+
+        # Load filtering stats from vector store (persisted in metadata)
+        filter_stats = self.vector_store.get_filtering_stats()
 
         return {
             **vector_stats,
